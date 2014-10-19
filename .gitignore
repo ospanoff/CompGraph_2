@@ -1,0 +1,6 @@
+build/*
+bridge/include/*
+bridge/lib/*
+externals/*
+bridge.touch
+*.o
