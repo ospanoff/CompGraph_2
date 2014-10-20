@@ -9,6 +9,7 @@
 #include "EasyBMP.h"
 #include "linear.h"
 #include "argvparser.h"
+#include "matrix.h"
 
 using std::string;
 using std::vector;
@@ -76,18 +77,100 @@ void SavePredictions(const TFileList& file_list,
     stream.close();
 }
 
+Matrix<int> toGreyScale(BMP *in)
+{
+    Matrix<int> img(in->TellHeight(), in->TellWidth());
+    for (int i = 0; i < in->TellHeight(); i++)
+        for (int j = 0; j < in->TellWidth(); j++) {
+            img(i, j) = floor(0.299 * (*in)(j,i)->Red +
+                           0.587 * (*in)(j,i)->Green +
+                           0.114 * (*in)(j,i)->Blue);
+        }
+    return img;
+}
+
+class sobelX {
+public:
+    int operator() (const Matrix<int> &m) const
+    {
+        return -1 * m(0, 0) + 1 * m(0, 2);
+    }
+    static const int vert_radius = 0;
+    static const int hor_radius = 1;
+};
+
+class sobelY {
+public:
+    int operator() (const Matrix<int> &m) const
+    {
+        return 1 * m(0, 0) - 1 * m(2, 0);
+    }
+    static const int vert_radius = 1;
+    static const int hor_radius = 0;
+};
+
+pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
+{
+    Matrix<int> img(toGreyScale(in));
+    return make_pair(img.unary_map(sobelX()), img.unary_map(sobelY()));
+}
+
+pair<Matrix<int>, Matrix<int>> countModAndDirOfGrad(BMP *in)
+{
+    auto sobel = countSobel(in);
+    Matrix<int> module(sobel.first.n_rows, sobel.first.n_cols);
+    Matrix<int> direction(sobel.first.n_rows, sobel.first.n_cols);
+
+    for (int i = 0; i < static_cast<int>(sobel.first.n_rows); i++)
+        for (int j = 0; j < static_cast<int>(sobel.first.n_cols); j++) {
+            auto x = sobel.first(i, j);
+            auto y = sobel.second(i, j);
+            module(i, j) = sqrt(x*x + y*y);
+            direction(i, j) = atan2(y, x);
+        }
+
+    return make_pair(module, direction);
+}
+
 // Exatract features from dataset.
 // You should implement this function by yourself =)
-void ExtractFeatures(const TDataSet& data_set, TFeatures* features) {
-    for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
-        
-        // PLACE YOUR CODE HERE
-        // Remove this sample code and place your feature extraction code here
-        vector<float> one_image_features;
-        one_image_features.push_back(1.0);
-        features->push_back(make_pair(one_image_features, 1));
-        // End of sample code
+void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
+{
+    const int blockSizeX = 16;
+    const int blockSizeY = 8;
+    const int dirSegSize = 10;
+    vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize);
+    for (int i = 0; i < static_cast<int>(one_image_features.size()); i++)
+        one_image_features[i] = 0;
 
+    for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
+        BMP *image = data_set[image_idx].first;
+
+        auto modDir = countModAndDirOfGrad(image);
+
+        int rows = static_cast<int>(modDir.first.n_rows);
+        int cols = static_cast<int>(modDir.first.n_cols);
+        for (int i = 0; i < rows; i++)
+            for (int j = 0; j < cols; j++) {
+                int blockIndx = floor(i * (blockSizeY / rows)) * blockSizeX + floor(j * (blockSizeX / cols));
+                int angleIndx = floor(((modDir.second(i, j) + M_PI) / (2 * M_PI)) * dirSegSize);
+                int featIndx = blockIndx * dirSegSize + angleIndx;
+                one_image_features[featIndx] += modDir.first(i, j);
+        }
+
+        int step(2);
+        for (int i = 0; i < blockSizeX * blockSizeY; i += step) {
+            int norm(0);
+            for (int j = 0; j < dirSegSize * step; j++)
+                norm += pow(one_image_features[i * dirSegSize + j], 2);
+
+            norm = sqrt(norm);
+            for (int j = 0; j < dirSegSize * step; j++)
+                if (norm)
+                    one_image_features[i * dirSegSize + j] /= norm;
+        }
+
+        features->push_back(make_pair(one_image_features, data_set[image_idx].second));
     }
 }
 
@@ -123,7 +206,7 @@ void TrainClassifier(const string& data_file, const string& model_file) {
 
         // PLACE YOUR CODE HERE
         // You can change parameters of classifier here
-    params.C = 0.01;
+    params.C = 0.1;
     TClassifier classifier(params);
         // Train classifier
     classifier.Train(features, &model);
