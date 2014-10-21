@@ -83,37 +83,21 @@ Matrix<int> toGreyScale(BMP *in)
     for (int i = 0; i < in->TellHeight(); i++)
         for (int j = 0; j < in->TellWidth(); j++) {
             img(i, j) = static_cast<int>(0.299 * (*in)(j,i)->Red +
-                           0.587 * (*in)(j,i)->Green +
-                           0.114 * (*in)(j,i)->Blue);
+                                         0.587 * (*in)(j,i)->Green +
+                                         0.114 * (*in)(j,i)->Blue);
         }
+
     return img;
 }
 
-class sobelX {
-public:
-    int operator() (const Matrix<int> &m) const
-    {
-        return -1 * m(0, 0) + 1 * m(0, 2);
-    }
-    static const int vert_radius = 0;
-    static const int hor_radius = 1;
-};
-
-class sobelY {
-public:
-    int operator() (const Matrix<int> &m) const
-    {
-        return 1 * m(0, 0) - 1 * m(2, 0);
-    }
-    static const int vert_radius = 1;
-    static const int hor_radius = 0;
-};
-
+// Sobel by unary map gives worse result at all
+// so here hand-made sobel filter
 pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
 {
     Matrix<int> img(toGreyScale(in));
-    /*Matrix<int> sobelX(toGreyScale(in));
+    Matrix<int> sobelX(toGreyScale(in));
     Matrix<int> sobelY(toGreyScale(in));
+    
     int rows = static_cast<int>(sobelX.n_rows);
     int cols = static_cast<int>(sobelX.n_cols);
     for (int i = 0; i < rows; i++)
@@ -121,18 +105,18 @@ pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
             sobelY(i, j) = ((i > 0) ? img(i - 1, j) : 0) - ((i < rows - 1) ? img(i + 1, j) : 0);
             sobelX(i, j) = ((j < cols - 1) ? img(i, j + 1) : 0) - ((j > 0) ? img(i, j - 1) : 0);
         }
-    return make_pair(sobelX, sobelY);*/
-    return make_pair(img.unary_map(sobelX()), img.unary_map(sobelY()));
+    
+    return make_pair(sobelX, sobelY);
 }
 
-pair<Matrix<int>, Matrix<int>> countModAndDirOfGrad(BMP *in)
+pair<Matrix<float>, Matrix<float>> countModAndDirOfGrad(BMP *in)
 {
     auto sobel = countSobel(in);
-    Matrix<int> module(sobel.first.n_rows, sobel.first.n_cols);
-    Matrix<int> direction(sobel.first.n_rows, sobel.first.n_cols);
+    Matrix<float> module(sobel.first.n_rows, sobel.first.n_cols);
+    Matrix<float> direction(sobel.first.n_rows, sobel.first.n_cols);
 
-    for (int i = 0; i < static_cast<int>(sobel.first.n_rows); i++)
-        for (int j = 0; j < static_cast<int>(sobel.first.n_cols); j++) {
+    for (size_t i = 0; i < sobel.first.n_rows; i++)
+        for (size_t j = 0; j < sobel.first.n_cols; j++) {
             auto x = sobel.first(i, j);
             auto y = sobel.second(i, j);
             module(i, j) = sqrt(x*x + y*y);
@@ -143,44 +127,44 @@ pair<Matrix<int>, Matrix<int>> countModAndDirOfGrad(BMP *in)
 }
 
 // Exatract features from dataset.
-// You should implement this function by yourself =)
 void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
 {
     const int blockSizeX(8);
     const int blockSizeY(8);
     const int dirSegSize(32);
-    vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize);
-    for (int i = 0; i < static_cast<int>(one_image_features.size()); i++)
-        one_image_features[i] = 0;
 
     for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
-        BMP *image = data_set[image_idx].first;
+        vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize, 0);
 
+        BMP *image = data_set[image_idx].first;
         auto modDir = countModAndDirOfGrad(image);
 
-        int rows = static_cast<int>(modDir.first.n_rows);
-        int cols = static_cast<int>(modDir.first.n_cols);
+        int rows = static_cast<int>(modDir.first.n_rows); // we use these ...
+        int cols = static_cast<int>(modDir.first.n_cols); // ... not only one time
         for (int i = 0; i < rows; i++)
             for (int j = 0; j < cols; j++) {
-                int blockIndx = static_cast<int>((i / rows) * blockSizeY) * blockSizeX + static_cast<int>((j / cols) * blockSizeX);
-                int angleIndx = static_cast<int>(((modDir.second(i, j) + M_PI) / (2 * M_PI)) * dirSegSize);
+                int blockIndx = static_cast<int>(i * blockSizeY / rows) * blockSizeY +
+                                static_cast<int>(j * blockSizeX / cols);
+                int angleIndx = static_cast<int>(((static_cast<int>(modDir.second(i, j)) + M_PI) /
+                                                  (2 * M_PI)) * dirSegSize);
                 int featIndx = blockIndx * dirSegSize + angleIndx;
                 one_image_features[featIndx] += modDir.first(i, j);
         }
 
-        int step(2);
-        for (int i = 0; i < blockSizeX * blockSizeY; i += step) {
-            double norm(0);
-            for (int j = 0; j < dirSegSize * step; j++)
+        int numOfBlocks(2); // normalizing blocks with norm of numOfBlocks blocks
+        for (int i = 0; i < blockSizeX * blockSizeY; i += numOfBlocks) {
+            float norm(0);
+            for (int j = 0; j < dirSegSize * numOfBlocks; j++)
                 norm += pow(one_image_features[i * dirSegSize + j], 2);
 
             norm = sqrt(norm);
-            for (int j = 0; j < dirSegSize * step; j++)
+            for (int j = 0; j < dirSegSize * numOfBlocks; j++)
                 if (norm > 0)
                     one_image_features[i * dirSegSize + j] /= norm;
         }
 
         features->push_back(make_pair(one_image_features, data_set[image_idx].second));
+        one_image_features.clear();
     }
 }
 

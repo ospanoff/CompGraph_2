@@ -3,4 +3,5 @@ bridge/include/*
 bridge/lib/*
 externals/*
 bridge.touch
+model_multiclass.txt
 *.o
