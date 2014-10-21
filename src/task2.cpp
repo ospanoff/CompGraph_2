@@ -82,7 +82,7 @@ Matrix<int> toGreyScale(BMP *in)
     Matrix<int> img(in->TellHeight(), in->TellWidth());
     for (int i = 0; i < in->TellHeight(); i++)
         for (int j = 0; j < in->TellWidth(); j++) {
-            img(i, j) = floor(0.299 * (*in)(j,i)->Red +
+            img(i, j) = static_cast<int>(0.299 * (*in)(j,i)->Red +
                            0.587 * (*in)(j,i)->Green +
                            0.114 * (*in)(j,i)->Blue);
         }
@@ -112,6 +112,16 @@ public:
 pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
 {
     Matrix<int> img(toGreyScale(in));
+    /*Matrix<int> sobelX(toGreyScale(in));
+    Matrix<int> sobelY(toGreyScale(in));
+    int rows = static_cast<int>(sobelX.n_rows);
+    int cols = static_cast<int>(sobelX.n_cols);
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++) {
+            sobelY(i, j) = ((i > 0) ? img(i - 1, j) : 0) - ((i < rows - 1) ? img(i + 1, j) : 0);
+            sobelX(i, j) = ((j < cols - 1) ? img(i, j + 1) : 0) - ((j > 0) ? img(i, j - 1) : 0);
+        }
+    return make_pair(sobelX, sobelY);*/
     return make_pair(img.unary_map(sobelX()), img.unary_map(sobelY()));
 }
 
@@ -136,9 +146,9 @@ pair<Matrix<int>, Matrix<int>> countModAndDirOfGrad(BMP *in)
 // You should implement this function by yourself =)
 void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
 {
-    const int blockSizeX = 16;
-    const int blockSizeY = 8;
-    const int dirSegSize = 10;
+    const int blockSizeX(8);
+    const int blockSizeY(8);
+    const int dirSegSize(32);
     vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize);
     for (int i = 0; i < static_cast<int>(one_image_features.size()); i++)
         one_image_features[i] = 0;
@@ -152,21 +162,21 @@ void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
         int cols = static_cast<int>(modDir.first.n_cols);
         for (int i = 0; i < rows; i++)
             for (int j = 0; j < cols; j++) {
-                int blockIndx = floor(i * (blockSizeY / rows)) * blockSizeX + floor(j * (blockSizeX / cols));
-                int angleIndx = floor(((modDir.second(i, j) + M_PI) / (2 * M_PI)) * dirSegSize);
+                int blockIndx = static_cast<int>((i / rows) * blockSizeY) * blockSizeX + static_cast<int>((j / cols) * blockSizeX);
+                int angleIndx = static_cast<int>(((modDir.second(i, j) + M_PI) / (2 * M_PI)) * dirSegSize);
                 int featIndx = blockIndx * dirSegSize + angleIndx;
                 one_image_features[featIndx] += modDir.first(i, j);
         }
 
         int step(2);
         for (int i = 0; i < blockSizeX * blockSizeY; i += step) {
-            int norm(0);
+            double norm(0);
             for (int j = 0; j < dirSegSize * step; j++)
                 norm += pow(one_image_features[i * dirSegSize + j], 2);
 
             norm = sqrt(norm);
             for (int j = 0; j < dirSegSize * step; j++)
-                if (norm)
+                if (norm > 0)
                     one_image_features[i * dirSegSize + j] /= norm;
         }
 
