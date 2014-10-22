@@ -11,6 +11,10 @@
 #include "argvparser.h"
 #include "matrix.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 using std::string;
 using std::vector;
 using std::ifstream;
@@ -126,6 +130,16 @@ pair<Matrix<float>, Matrix<float>> countModAndDirOfGrad(BMP *in)
     return make_pair(module, direction);
 }
 
+pair<float, float> phi(float x, float l)
+{
+    float a(0), b(0);
+    if (x > 0) {
+        a = cos(l * log(x)) * sqrt(x / cosh(M_PI * l));
+        b = -sin(l * log(x)) * sqrt(x / cosh(M_PI * l));
+    }
+    return make_pair(a, b);
+}
+
 // Exatract features from dataset.
 void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
 {
@@ -159,12 +173,27 @@ void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
 
             norm = sqrt(norm);
             for (int j = 0; j < dirSegSize * numOfBlocks; j++)
-                if (norm > 0)
+                if (norm > 0) {
                     one_image_features[i * dirSegSize + j] /= norm;
+                }
         }
 
-        features->push_back(make_pair(one_image_features, data_set[image_idx].second));
+        // nonlinear SVM
+        const int n = 1;
+        const float L = 0.5;
+        vector<float> tmp;
+
+        for (size_t i = 0; i < one_image_features.size(); i++) {
+            for (int j = -n; j <= n; j++) {
+                auto x = phi(one_image_features[i], j * L);
+                tmp.push_back(x.first);
+                tmp.push_back(x.second);
+            }
+        }
+
+        features->push_back(make_pair(tmp /*one_image_features*/, data_set[image_idx].second));
         one_image_features.clear();
+        tmp.clear();
     }
 }
 
