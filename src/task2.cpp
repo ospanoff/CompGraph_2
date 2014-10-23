@@ -1,3 +1,12 @@
+/*
+                                        ________      __  _____  _______       _____________                              
+    ____  _________  ____ _____  ____  / __/ __/     /  |/  /  |/  / __ \     |__  <  /__  /  ____ __________  __  ______ 
+   / __ \/ ___/ __ \/ __ `/ __ \/ __ \/ /_/ /_      / /|_/ / /|_/ / /_/ /      /_ </ /  / /  / __ `/ ___/ __ \/ / / / __ \
+ _/ /_/ (__  ) /_/ / /_/ / / / / /_/ / __/ __/_    / /  / / /  / / ____/     ___/ / /  / /  / /_/ / /  / /_/ / /_/ / /_/ /
+(_)____/____/ .___/\__,_/_/ /_/\____/_/ /_/  ( )  /_/  /_/_/  /_/_/   ( )   /____/_/  /_/   \__, /_/   \____/\__,_/ .___/ 
+           /_/                               |/                       |/                   /____/                /_/      
+*/
+
 #include <string>
 #include <vector>
 #include <fstream>
@@ -81,6 +90,16 @@ void SavePredictions(const TFileList& file_list,
     stream.close();
 }
 
+/*
+   _____ __             __           ____                                     __   
+  / ___// /_____ ______/ /_   ____  / __/  ____ ___  __  __   _________  ____/ /__ 
+  \__ \/ __/ __ `/ ___/ __/  / __ \/ /_   / __ `__ \/ / / /  / ___/ __ \/ __  / _ \
+ ___/ / /_/ /_/ / /  / /_   / /_/ / __/  / / / / / / /_/ /  / /__/ /_/ / /_/ /  __/
+/____/\__/\__,_/_/   \__/   \____/_/    /_/ /_/ /_/\__, /   \___/\____/\__,_/\___/ 
+                                                  /____/                           
+*/
+
+// Making grayscale image (3.1)
 Matrix<int> toGreyScale(BMP *in)
 {
     Matrix<int> img(in->TellHeight(), in->TellWidth());
@@ -94,6 +113,7 @@ Matrix<int> toGreyScale(BMP *in)
     return img;
 }
 
+// Making matrixes of x and y parts of gradient (3.2)
 // Sobel by unary map gives worse result at all
 // so here hand-made sobel filter
 pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
@@ -113,6 +133,7 @@ pair<Matrix<int>, Matrix<int>> countSobel(BMP *in)
     return make_pair(sobelX, sobelY);
 }
 
+// Counting module and direction of gradients (3.3)
 pair<Matrix<float>, Matrix<float>> countModAndDirOfGrad(BMP *in)
 {
     auto sobel = countSobel(in);
@@ -140,62 +161,140 @@ pair<float, float> phi(float x, float l)
     return make_pair(a, b);
 }
 
+vector<float> HOG(const int blockSizeX, const int blockSizeY, const int dirSegSize, BMP *image)
+{
+    vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize, 0);
+
+    auto modDir = countModAndDirOfGrad(image);
+
+    /*
+        ____                     ____             __ 
+       / __ )____ _________     / __ \____ ______/ /_
+      / __  / __ `/ ___/ _ \   / /_/ / __ `/ ___/ __/
+     / /_/ / /_/ (__  )  __/  / ____/ /_/ / /  / /_  
+    /_____/\__,_/____/\___/  /_/    \__,_/_/   \__/                                            
+    */
+
+    // counting hog (3.4)
+    const int rows = static_cast<int>(modDir.first.n_rows); // we use these ...
+    const int cols = static_cast<int>(modDir.first.n_cols); // ... not only one time
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++) {
+            int blockIndx = static_cast<int>(i * blockSizeY / rows) * blockSizeX +
+                            static_cast<int>(j * blockSizeX / cols);
+            int angleIndx = static_cast<int>(((static_cast<int>(modDir.second(i, j)) + M_PI) /
+                                              (2 * M_PI)) * dirSegSize);
+
+            int featIndx = blockIndx * dirSegSize + angleIndx;
+            one_image_features[featIndx] += modDir.first(i, j);
+    }
+
+    // normalization of histograms (3.5)
+    int numOfBlocks(2); // normalizing blocks with norm of numOfBlocks blocks
+    for (int i = 0; i < blockSizeX * blockSizeY; i += numOfBlocks) {
+        float norm(0);
+        for (int j = 0; j < dirSegSize * numOfBlocks; j++)
+            norm += pow(one_image_features[i * dirSegSize + j], 2);
+
+        norm = sqrt(norm);
+        for (int j = 0; j < dirSegSize * numOfBlocks; j++)
+            if (norm > 0) {
+                one_image_features[i * dirSegSize + j] /= norm;
+            }
+    }
+
+    /*
+                  __              ____           __                           ______  __ __ _ 
+      _________  / /___  _____   / __/__  ____ _/ /___  __________  _____   _/_/ __ \/ // /| |
+     / ___/ __ \/ / __ \/ ___/  / /_/ _ \/ __ `/ __/ / / / ___/ _ \/ ___/  / // /_/ / // /_/ /
+    / /__/ /_/ / / /_/ / /     / __/  __/ /_/ / /_/ /_/ / /  /  __(__  )  / / \__, /__  __/ / 
+    \___/\____/_/\____/_/     /_/  \___/\__,_/\__/\__,_/_/   \___/____/  / / /____(_)/_/_/_/  
+                                                                         |_|           /_/    
+    */
+
+    const int blockSX(8);
+    const int blockSY(8);
+    vector<int> colorR(blockSX * blockSY, 0);
+    vector<int> colorG(blockSX * blockSY, 0);
+    vector<int> colorB(blockSX * blockSY, 0);
+    vector<int> colNum(blockSX * blockSY, 0);
+
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++) {
+            int blockIndx = static_cast<int>(i * blockSY / rows) * blockSX +
+                            static_cast<int>(j * blockSX / cols);
+            colorR[blockIndx] += (*image)(j, i)->Red;
+            colorG[blockIndx] += (*image)(j, i)->Green;
+            colorB[blockIndx] += (*image)(j, i)->Blue;
+            colNum[blockIndx]++;
+    }
+    for (size_t i = 0; i < colorR.size(); i++) {
+        one_image_features.push_back(colorR[i] / (255 * colNum[i]));
+        one_image_features.push_back(colorG[i] / (255 * colNum[i]));
+        one_image_features.push_back(colorB[i] / (255 * colNum[i]));
+    }
+
+    /*
+                          ___                          ______    ____  ___    ______   ___   _ 
+       ____  ____  ____  / (_)___  ___  ____ ______   / ___/ |  / /  |/  /  _/_/ __ \ |__ \ | |
+      / __ \/ __ \/ __ \/ / / __ \/ _ \/ __ `/ ___/   \__ \| | / / /|_/ /  / // /_/ / __/ / / /
+     / / / / /_/ / / / / / / / / /  __/ /_/ / /      ___/ /| |/ / /  / /  / / \__, / / __/ / / 
+    /_/ /_/\____/_/ /_/_/_/_/ /_/\___/\__,_/_/      /____/ |___/_/  /_/  / / /____(_)____//_/  
+                                                                         |_|            /_/    
+    */
+
+    vector<float> tmp;
+
+    const int n = 1;
+    const float L = 0.5;
+
+    for (size_t i = 0; i < one_image_features.size(); i++) {
+        for (int j = -n; j <= n; j++) {
+            auto x = phi(one_image_features[i], j * L);
+            tmp.push_back(x.first);
+            tmp.push_back(x.second);
+        }
+    }
+
+    one_image_features.clear();
+    return tmp;
+}
+
 // Exatract features from dataset.
 void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
 {
-    const int blockSizeX(8);
-    const int blockSizeY(8);
+    /*
+        ____                      _       __                ______                   ______   _____ _ 
+       / __ \___  _______________(_)___  / /_____  _____   /_  __/_______  ___     _/_/ __ \ |__  /| |
+      / / / / _ \/ ___/ ___/ ___/ / __ \/ __/ __ \/ ___/    / / / ___/ _ \/ _ \   / // /_/ /  /_ < / /
+     / /_/ /  __(__  ) /__/ /  / / /_/ / /_/ /_/ / /       / / / /  /  __/  __/  / / \__, / ___/ // / 
+    /_____/\___/____/\___/_/  /_/ .___/\__/\____/_/       /_/ /_/   \___/\___/  / / /____(_)____//_/  
+                               /_/                                              |_|            /_/    
+    */
+    const vector<int> blockSizeX = {8, 8, 16, 32};
+    const vector<int> blockSizeY = {4, 8, 16, 16};
     const int dirSegSize(32);
-
+    const int treeDepth(blockSizeX.size());
     for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
-        vector<float> one_image_features(blockSizeX * blockSizeY * dirSegSize, 0);
-
-        BMP *image = data_set[image_idx].first;
-        auto modDir = countModAndDirOfGrad(image);
-
-        int rows = static_cast<int>(modDir.first.n_rows); // we use these ...
-        int cols = static_cast<int>(modDir.first.n_cols); // ... not only one time
-        for (int i = 0; i < rows; i++)
-            for (int j = 0; j < cols; j++) {
-                int blockIndx = static_cast<int>(i * blockSizeY / rows) * blockSizeY +
-                                static_cast<int>(j * blockSizeX / cols);
-                int angleIndx = static_cast<int>(((static_cast<int>(modDir.second(i, j)) + M_PI) /
-                                                  (2 * M_PI)) * dirSegSize);
-                int featIndx = blockIndx * dirSegSize + angleIndx;
-                one_image_features[featIndx] += modDir.first(i, j);
-        }
-
-        int numOfBlocks(2); // normalizing blocks with norm of numOfBlocks blocks
-        for (int i = 0; i < blockSizeX * blockSizeY; i += numOfBlocks) {
-            float norm(0);
-            for (int j = 0; j < dirSegSize * numOfBlocks; j++)
-                norm += pow(one_image_features[i * dirSegSize + j], 2);
-
-            norm = sqrt(norm);
-            for (int j = 0; j < dirSegSize * numOfBlocks; j++)
-                if (norm > 0) {
-                    one_image_features[i * dirSegSize + j] /= norm;
-                }
-        }
-
-        // nonlinear SVM
-        const int n = 1;
-        const float L = 0.5;
-        vector<float> tmp;
-
-        for (size_t i = 0; i < one_image_features.size(); i++) {
-            for (int j = -n; j <= n; j++) {
-                auto x = phi(one_image_features[i], j * L);
-                tmp.push_back(x.first);
-                tmp.push_back(x.second);
+        vector<float> one_image_features;
+        for (int i = 0; i < treeDepth; i++) {
+            auto tmp = HOG(blockSizeX[i], blockSizeY[i], dirSegSize, data_set[image_idx].first);
+            for (size_t k = 0; k < tmp.size(); k++) {
+                one_image_features.push_back(tmp[k]);
             }
         }
 
-        features->push_back(make_pair(tmp /*one_image_features*/, data_set[image_idx].second));
-        one_image_features.clear();
-        tmp.clear();
+        features->push_back(make_pair(one_image_features, data_set[image_idx].second));
     }
 }
+/*
+    ______          __         ____                                     __   
+   / ____/___  ____/ /  ____  / __/  ____ ___  __  __   _________  ____/ /__ 
+  / __/ / __ \/ __  /  / __ \/ /_   / __ `__ \/ / / /  / ___/ __ \/ __  / _ \
+ / /___/ / / / /_/ /  / /_/ / __/  / / / / / / /_/ /  / /__/ /_/ / /_/ /  __/
+/_____/_/ /_/\__,_/   \____/_/    /_/ /_/ /_/\__, /   \___/\____/\__,_/\___/ 
+                                            /____/                           
+*/
 
 // Clear dataset structure
 void ClearDataset(TDataSet* data_set) {
@@ -229,7 +328,7 @@ void TrainClassifier(const string& data_file, const string& model_file) {
 
         // PLACE YOUR CODE HERE
         // You can change parameters of classifier here
-    params.C = 0.1;
+    params.C = 0.08;
     TClassifier classifier(params);
         // Train classifier
     classifier.Train(features, &model);
