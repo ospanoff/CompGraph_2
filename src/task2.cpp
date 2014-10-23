@@ -272,7 +272,7 @@ void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
                                /_/                                              |_|            /_/    
     */
     const vector<int> blockSizeX = {4, 8, 8, 16};
-    const vector<int> blockSizeY = {4, 4, 8, 8};
+    const vector<int> blockSizeY = {4, 6, 8, 8};
     const int dirSegSize(32);
     const int treeDepth(blockSizeX.size());
     for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
