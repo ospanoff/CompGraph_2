@@ -245,7 +245,7 @@ vector<float> HOG(const int blockSizeX, const int blockSizeY, const int dirSegSi
 
     vector<float> tmp;
 
-    const int n = 1;
+    const int n = 2;
     const float L = 0.5;
 
     for (size_t i = 0; i < one_image_features.size(); i++) {
@@ -271,8 +271,8 @@ void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
     /_____/\___/____/\___/_/  /_/ .___/\__/\____/_/       /_/ /_/   \___/\___/  / / /____(_)____//_/  
                                /_/                                              |_|            /_/    
     */
-    const vector<int> blockSizeX = {8, 8, 16, 32};
-    const vector<int> blockSizeY = {4, 8, 16, 16};
+    const vector<int> blockSizeX = {4, 8, 8, 16};
+    const vector<int> blockSizeY = {4, 4, 8, 8};
     const int dirSegSize(32);
     const int treeDepth(blockSizeX.size());
     for (size_t image_idx = 0; image_idx < data_set.size(); ++image_idx) {
@@ -283,7 +283,6 @@ void ExtractFeatures(const TDataSet& data_set, TFeatures* features)
                 one_image_features.push_back(tmp[k]);
             }
         }
-
         features->push_back(make_pair(one_image_features, data_set[image_idx].second));
     }
 }
